@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Login - Online Grocery Store</title>
+    <style>
+        body { font-family: sans-serif; margin: 20px; background-color: #f4f4f4; }
+        .container { max-width: 400px; margin: 40px auto; background: white; padding: 30px; border-radius: 5px; box-shadow: 0 0 10px rgba(0,0,0,0.1); }
+        h2 { text-align: center; margin-bottom: 20px; color: #333; }
+        label { display: block; margin-bottom: 5px; font-weight: bold; }
+        input[type="email"], input[type="password"], input[type="text"] {
+            width: 100%; padding: 10px; margin-bottom: 15px; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box;
+        }
+        button {
+            width: 100%; padding: 12px; background-color: #5cb85c; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 16px;
+        }
+        button:hover:not(:disabled) { background-color: #4cae4c; }
+        button:disabled { background-color: #aaa; }
+        /* Style for the CAPTCHA image */
+        .captcha-section img {
+            display: block;
+            margin-bottom: 10px;
+            border: 1px solid #ddd;
+            min-height: 50px; /* Placeholder height while loading */
+            min-width: 100px; /* Placeholder width */
+            background-color: #f0f0f0; /* Placeholder background */
+            object-fit: contain; /* Adjust if needed */
+            max-width: 100%; /* Ensure it fits container */
+        }
+        /* CAPTCHA instruction text styling */
+        .captcha-section .captcha-instruction {
+            font-style: italic; color: #666; display: block; margin-bottom: 10px; font-size: 0.9em;
+        }
+        /* Loading/Error text */
+        #captcha-status {
+            font-style: italic; color: #888; display: block; margin-bottom: 5px; height: 1.2em; /* Reserve space */
+        }
+        #captcha-status.error { color: red; }
+
+        #message { margin-top: 15px; text-align: center; font-weight: bold; }
+        .error-message { color: red; }
+        .success-message { color: green; }
+        .register-link { text-align: center; margin-top: 20px; }
+        .register-link a { color: #007bff; text-decoration: none; }
+        .register-link a:hover { text-decoration: underline; }
+    </style>
+</head>
+<body>
+<div class="container">
+    <h2>Login</h2>
+    <form id="login-form">
+        <div>
+            <label for="email">Email:</label>
+            <input type="email" id="email" name="email" required>
+        </div>
+        <div>
+            <label for="password">Password:</label>
+            <input type="password" id="password" name="password" required>
+        </div>
+
+        <div class="captcha-section">
+            <label for="captcha">CAPTCHA:</label>
+            <span id="captcha-status">Loading CAPTCHA...</span>
+            <img id="captcha-image" src="" alt="CAPTCHA Image Loading..." />
+            <span class="captcha-instruction">Enter the code shown above (case-insensitive):</span>
+            <input type="text" id="captcha" name="captcha" required autocomplete="off">
+        </div>
+        <button type="submit" id="login-button">Login</button>
+    </form>
+    <div id="message"></div>
+    <div class="register-link">
+        Don't have an account? <a href="register.html">Register here</a>
+    </div>
+</div>
+
+<script>
+    const loginForm = document.getElementById('login-form');
+    const messageDiv = document.getElementById('message');
+    const loginButton = document.getElementById('login-button');
+    const captchaImage = document.getElementById('captcha-image');
+    const captchaStatus = document.getElementById('captcha-status');
+
+
+    // --- Function to load a new CAPTCHA image ---
+    async function loadCaptcha() {
+        captchaImage.src = ''; // Clear previous image visually
+        captchaImage.alt = 'Loading CAPTCHA...';
+        captchaStatus.textContent = 'Loading CAPTCHA...';
+        captchaStatus.className = ''; // Reset class
+
+        try {
+            // Path relative to login.html calling get_captcha.php
+            const response = await fetch('../../backend/get_captcha.php'); // Call the new PHP script
+            if (!response.ok) {
+                throw new Error(`HTTP error! Status: ${response.status}`);
+            }
+            const data = await response.json();
+
+            if (data.status === 'success' && data.imagePath) {
+                captchaImage.src = data.imagePath; // Set the image source
+                captchaImage.alt = 'CAPTCHA Image'; // Update alt text
+                captchaStatus.textContent = ''; // Clear loading text
+            } else {
+                throw new Error(data.message || 'Failed to get CAPTCHA image path.');
+            }
+
+        } catch (error) {
+            console.error('Error loading CAPTCHA:', error);
+            captchaImage.alt = 'Error loading CAPTCHA';
+            captchaStatus.textContent = 'Error loading CAPTCHA!';
+            captchaStatus.className = 'error'; // Add error class for styling
+            // Consider disabling the login button if CAPTCHA fails to load
+            // loginButton.disabled = true;
+        }
+    }
+
+    // --- Form Submission Logic ---
+    loginForm.addEventListener('submit', async (event) => {
+        event.preventDefault(); // Prevent default form submission
+
+        messageDiv.textContent = ''; // Clear previous messages
+        messageDiv.className = '';
+        loginButton.disabled = true; // Disable button during processing
+        loginButton.textContent = 'Logging in...';
+
+        const formData = new FormData(loginForm);
+
+        try {
+            const response = await fetch('../../backend/login.php', { // POST to the existing login script
+                method: 'POST',
+                body: formData
+            });
+
+            const result = await response.json();
+
+            if (response.ok && result.status === 'success') {
+                messageDiv.textContent = result.message || 'Login successful! Redirecting...';
+                messageDiv.className = 'success-message';
+                // Redirect after a short delay
+                setTimeout(() => {
+                    window.location.href = result.redirectUrl || 'index.html'; // Redirect to specified URL or fallback
+                }, 1500); // 1.5 second delay
+            } else {
+                // Login failed (could be bad password OR bad CAPTCHA)
+                // Always reload CAPTCHA on failed attempt for security
+                loadCaptcha();
+                // Clear the CAPTCHA input field for the user
+                document.getElementById('captcha').value = '';
+                throw new Error(result.message || `Login failed (Status: ${response.status})`);
+            }
+
+        } catch (error) {
+            console.error('Login error:', error);
+            messageDiv.textContent = error.message;
+            messageDiv.className = 'error-message';
+            loginButton.disabled = false; // Re-enable button on error
+            loginButton.textContent = 'Login';
+            // Clear error after a few seconds
+            setTimeout(() => { messageDiv.textContent = ''; }, 5000);
+        }
+    });
+
+    // --- Initial CAPTCHA Load ---
+    // Use DOMContentLoaded to ensure elements exist before trying to manipulate them
+    document.addEventListener('DOMContentLoaded', () => {
+        loadCaptcha(); // Load the first CAPTCHA when the page is ready
+    });
+
+</script>
+</body>
+</html>

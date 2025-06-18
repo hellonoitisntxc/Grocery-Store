@@ -1,0 +1,280 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Online Grocery Store - Fresh Produce & Meat</title>
+    <meta name="description" content="Browse and order fresh vegetables and quality meats from our online grocery store. Fast, fresh, and convenient.">
+    <style>
+        body { font-family: sans-serif; margin: 20px; background-color: #f4f4f4; }
+        header { background-color: #333; color: white; padding: 10px 20px; display: flex; justify-content: space-between; align-items: center; }
+        header h1 { margin: 0; }
+        nav a { color: white; text-decoration: none; margin-left: 15px; }
+        nav a:hover { text-decoration: underline; }
+        .container { background: white; padding: 20px; margin-top: 20px; border-radius: 5px; box-shadow: 0 0 10px rgba(0,0,0,0.1); }
+        label { display: block; margin-bottom: 5px; font-weight: bold;}
+        select, button { padding: 10px; margin-bottom: 15px; width: 100%; max-width: 300px; box-sizing: border-box; }
+        #product-details img { max-width: 200px; height: auto; display: block; margin-top: 10px; border: 1px solid #ddd; padding: 5px; }
+        #product-details p { font-size: 1.2em; font-weight: bold; color: #5cb85c; }
+        #order-section button { background-color: #5cb85c; color: white; border: none; cursor: pointer; }
+        #order-section button:disabled { background-color: #aaa; cursor: not-allowed; }
+        #order-section button:hover:not(:disabled) { background-color: #4cae4c; }
+        .user-info { color: white; }
+        .error-message { color: red; font-weight: bold; margin-top: 10px; }
+        .success-message { color: green; font-weight: bold; margin-top: 10px; }
+        /* Responsive */
+        @media (max-width: 600px) {
+            header { flex-direction: column; align-items: flex-start; }
+            nav { margin-top: 10px; }
+            nav a { margin-left: 0; margin-right: 15px; }
+            select, button { max-width: 100%; }
+        }
+    </style>
+</head>
+<body>
+
+<header>
+    <h1>Grocery Store</h1>
+    <nav id="auth-links">
+        <span class="user-info" id="user-greeting"></span>
+        <a href="login.html">Login</a>
+        <a href="register.html">Register</a>
+    </nav>
+</header>
+
+<main class="container">
+    <h2>Browse Our Products</h2>
+
+    <div>
+        <label for="category-select">Select Category:</label>
+        <select id="category-select">
+            <option value="">-- Select Category --</option>
+            <option value="Vegetables">Vegetables</option>
+            <option value="Meat">Meat</option>
+        </select>
+    </div>
+
+    <div>
+        <label for="product-select">Select Product:</label>
+        <select id="product-select" disabled>
+            <option value="">-- Select Product --</option>
+        </select>
+    </div>
+
+    <div id="product-details" style="margin-top: 20px;">
+    </div>
+
+    <div id="order-section" style="margin-top: 20px; display: none;">
+        <button id="order-button" disabled>Add to Order (Login Required)</button>
+        <div id="order-message"></div>
+    </div>
+    <div id="general-message"></div> </main>
+
+<footer>
+    <p>&copy; <span id="current-year"></span> Online Grocery Store. All rights reserved.</p>
+</footer>
+
+<script>
+    // Get current year for footer
+    document.getElementById('current-year').textContent = new Date().getFullYear();
+
+    const categorySelect = document.getElementById('category-select');
+    const productSelect = document.getElementById('product-select');
+    const productDetailsDiv = document.getElementById('product-details');
+    const orderSection = document.getElementById('order-section');
+    const orderButton = document.getElementById('order-button');
+    const orderMessage = document.getElementById('order-message');
+    const generalMessage = document.getElementById('general-message');
+    const authLinks = document.getElementById('auth-links');
+    const userGreeting = document.getElementById('user-greeting');
+
+    let productsData = {}; // To store details of fetched products {productId: {name, image_path, price}}
+    let isLoggedIn = false;
+    let selectedProductId = null;
+
+    // --- Check Login Status on Page Load ---
+    async function checkLoginStatus() {
+        try {
+            const response = await fetch('../../backend/check_session.php');
+            const data = await response.json();
+
+            isLoggedIn = data.loggedIn;
+            updateAuthUI(data);
+            updateOrderButtonState(); // Update button based on login status
+
+        } catch (error) {
+            console.error('Error checking login status:', error);
+            generalMessage.textContent = 'Could not verify login status.';
+            generalMessage.className = 'error-message';
+            updateAuthUI({ loggedIn: false }); // Assume logged out on error
+        }
+    }
+
+    // --- Update UI based on Login Status ---
+    function updateAuthUI(sessionData) {
+        authLinks.innerHTML = ''; // Clear existing links
+        if (sessionData.loggedIn) {
+            userGreeting.textContent = `Welcome, ${sessionData.userName}!`;
+            const logoutLink = document.createElement('a');
+            logoutLink.href = '../../backend/logout.php';
+            logoutLink.textContent = 'Logout';
+            authLinks.appendChild(logoutLink);
+            orderSection.style.display = 'block'; // Show order button section
+        } else {
+            userGreeting.textContent = '';
+            const loginLink = document.createElement('a');
+            loginLink.href = 'login.html';
+            loginLink.textContent = 'Login';
+            authLinks.appendChild(loginLink);
+
+            const registerLink = document.createElement('a');
+            registerLink.href = 'register.html';
+            registerLink.textContent = 'Register';
+            authLinks.appendChild(registerLink);
+            orderSection.style.display = 'none'; // Hide order button if not logged in
+        }
+    }
+
+
+    // --- Fetch Products When Category Changes ---
+    categorySelect.addEventListener('change', async () => {
+        const selectedCategory = categorySelect.value;
+        productSelect.innerHTML = '<option value="">-- Select Product --</option>'; // Reset products
+        productDetailsDiv.innerHTML = ''; // Clear details
+        productSelect.disabled = true;
+        selectedProductId = null; // Reset selected product
+        productsData = {}; // Clear old product data
+        updateOrderButtonState(); // Disable order button
+
+        if (selectedCategory) {
+            try {
+                // Use AJAX (Fetch API)
+                const response = await fetch(`../../backend/api/getProductsByCategory.php?category=${encodeURIComponent(selectedCategory)}`);
+                if (!response.ok) {
+                    throw new Error(`HTTP error! Status: ${response.status}`);
+                }
+                const data = await response.json();
+
+                if (data.status === 'success' && data.products.length > 0) {
+                    productsData = {}; // Reset before populating
+                    data.products.forEach(product => {
+                        const option = document.createElement('option');
+                        option.value = product.id;
+                        option.textContent = `${product.name} (\u00A3${parseFloat(product.price).toFixed(2)})`; // Show price in dropdown
+                        productSelect.appendChild(option);
+                        // Store product details for later use
+                        productsData[product.id] = {
+                            name: product.name,
+                            image_path: product.image_path, // Adjust path relative to index.html
+                            price: parseFloat(product.price).toFixed(2)
+                        };
+                    });
+                    productSelect.disabled = false;
+                } else if (data.status === 'success' && data.products.length === 0) {
+                    productSelect.innerHTML = '<option value="">-- No products available --</option>';
+                }
+                else {
+                    throw new Error(data.message || 'Failed to load products.');
+                }
+            } catch (error) {
+                console.error('Error fetching products:', error);
+                generalMessage.textContent = `Error loading products: ${error.message}`;
+                generalMessage.className = 'error-message';
+                // Clear message after a few seconds
+                setTimeout(() => { generalMessage.textContent = ''; }, 5000);
+            }
+        }
+    });
+
+    // --- Display Product Details When Product Changes ---
+    productSelect.addEventListener('change', () => {
+        selectedProductId = productSelect.value;
+        productDetailsDiv.innerHTML = ''; // Clear previous details
+        orderMessage.textContent = ''; // Clear previous order message
+        orderMessage.className = '';
+
+        if (selectedProductId && productsData[selectedProductId]) {
+            const product = productsData[selectedProductId];
+            const img = document.createElement('img');
+            img.src = product.image_path;
+            img.alt = product.name; // SEO: Alt text
+            productDetailsDiv.appendChild(img);
+
+            const pricePara = document.createElement('p');
+            pricePara.textContent = `Price: \u00A3${product.price}`; // Display price
+            productDetailsDiv.appendChild(pricePara);
+        }
+        updateOrderButtonState(); // Enable/disable order button based on selection
+    });
+
+    // --- Update Order Button State ---
+    function updateOrderButtonState() {
+        // Enable order button only if logged in AND a product is selected
+        if (isLoggedIn && selectedProductId) {
+            orderButton.disabled = false;
+            orderButton.textContent = `Order ${productsData[selectedProductId]?.name || 'Selected Item'}`;
+        } else if (isLoggedIn && !selectedProductId) {
+            orderButton.disabled = true;
+            orderButton.textContent = 'Select a Product to Order';
+        }
+        else { // Not logged in
+            orderButton.disabled = true;
+            orderButton.textContent = 'Login to Place Order';
+        }
+    }
+
+    // --- Handle Order Button Click ---
+    orderButton.addEventListener('click', async () => {
+        if (!isLoggedIn || !selectedProductId) {
+            orderMessage.textContent = 'Please select a product and ensure you are logged in.';
+            orderMessage.className = 'error-message';
+            return;
+        }
+
+        orderButton.disabled = true; // Prevent multiple clicks
+        orderButton.textContent = 'Placing Order...';
+        orderMessage.textContent = '';
+        orderMessage.className = '';
+
+        // Use FormData to send POST data easily
+        const formData = new FormData();
+        formData.append('product_id', selectedProductId);
+
+        try {
+            const response = await fetch('../../backend/order.php', {
+                method: 'POST',
+                body: formData
+            });
+            const result = await response.json();
+
+            if (response.ok && result.status === 'success') {
+                orderMessage.textContent = `${result.message} (Order ID: ${result.order_id})`;
+                orderMessage.className = 'success-message';
+                // Optionally reset selection after successful order
+                // categorySelect.value = '';
+                // productSelect.innerHTML = '<option value="">-- Select Product --</option>';
+                // productDetailsDiv.innerHTML = '';
+                // selectedProductId = null;
+            } else {
+                throw new Error(result.message || `HTTP error ${response.status}`);
+            }
+
+        } catch (error) {
+            console.error('Order failed:', error);
+            orderMessage.textContent = `Order failed: ${error.message}`;
+            orderMessage.className = 'error-message';
+        } finally {
+            // Re-enable button respecting login/selection state
+            updateOrderButtonState();
+        }
+
+    });
+
+
+    // --- Initial Setup ---
+    checkLoginStatus(); // Check login status when the page loads
+
+</script>
+
+</body>
+</html>
